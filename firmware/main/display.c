@@ -1,35 +1,45 @@
 // firmware/main/display.c
+//
+// LCD display driver for WT32-SC01 Plus (ESP32-S3-WROOM-1).
+//
+// Target: 3.5" 480x320 ST7796 over Intel 8080 8-bit parallel interface.
+// LVGL RGB565 with partial render buffers in PSRAM.
 #include "display.h"
 #include "config_store.h"
 #include "esp_lcd_panel_io.h"
 #include "esp_lcd_panel_ops.h"
-#include "esp_lcd_panel_vendor.h"
-#include "driver/spi_master.h"
-#include "driver/gpio.h"
+#include "esp_lcd_st7796.h"
 #include "esp_timer.h"
 #include "esp_log.h"
 #include "driver/ledc.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+#include "esp_heap_caps.h"
 
 static const char *TAG = "display";
 
-// Waveshare ESP32-C6-LCD-1.47 pin definitions
-#define PIN_MOSI    6
-#define PIN_SCLK    7
-#define PIN_CS      14
-#define PIN_DC      15
-#define PIN_RST     21
-#define PIN_BL      22
+/* WT32-SC01 Plus — ST7796 8-bit parallel (MCU 8080) pin mapping.
+ * Datasheet: ZX3D50CE08S-USRC-4832 (Wireless Tag). */
+#define LCD_DB0        9
+#define LCD_DB1        46
+#define LCD_DB2        3
+#define LCD_DB3        8
+#define LCD_DB4        18
+#define LCD_DB5        17
+#define LCD_DB6        16
+#define LCD_DB7        15
+#define LCD_RS         0       /* Data/Command (D/CX) */
+#define LCD_WR         47
+#define LCD_RST        4
+#define LCD_BL         45      /* Backlight PWM, active high */
 
-// Display config
-#define LCD_HOST        SPI2_HOST
-#define LCD_PIXEL_CLK   (12 * 1000 * 1000)
-#define LCD_H_RES       320   // landscape width
-#define LCD_V_RES       172   // landscape height
+/* Display config */
+#define LCD_H_RES       480   /* landscape width */
+#define LCD_V_RES       320   /* landscape height */
 #define LCD_CMD_BITS    8
 #define LCD_PARAM_BITS  8
-#define LVGL_BUF_LINES  20
+#define LCD_PCLK_HZ     (16 * 1000 * 1000)  /* 16 MHz parallel bus clock */
+#define LVGL_BUF_LINES  40    /* larger buffers now affordable with PSRAM */
 #define LVGL_TICK_MS    2
 
 static bool notify_lvgl_flush_ready(esp_lcd_panel_io_handle_t panel_io,
@@ -57,9 +67,18 @@ static void lvgl_tick_cb(void *arg) {
 }
 
 lv_display_t *display_init(void) {
-    ESP_LOGI(TAG, "Initializing display...");
+    ESP_LOGI(TAG, "Initializing display (WT32-SC01 Plus, ST7796 parallel)...");
 
-    // PWM backlight via LEDC — keep duty low to reduce heat
+    /* --- LVGL must be initialized before panel I/O so the display handle
+     *     can be passed as user_ctx to the color-transfer-done callback. --- */
+    lv_init();
+    lv_display_t *display = lv_display_create(LCD_H_RES, LCD_V_RES);
+    if (!display) {
+        ESP_LOGE(TAG, "lv_display_create failed — out of memory");
+        abort();
+    }
+
+    /* PWM backlight via LEDC — keep duty low to reduce heat */
     ledc_timer_config_t bl_timer = {
         .speed_mode = LEDC_LOW_SPEED_MODE,
         .duty_resolution = LEDC_TIMER_8_BIT,
@@ -69,7 +88,7 @@ lv_display_t *display_init(void) {
     };
     ESP_ERROR_CHECK(ledc_timer_config(&bl_timer));
     ledc_channel_config_t bl_channel = {
-        .gpio_num = PIN_BL,
+        .gpio_num = LCD_BL,
         .speed_mode = LEDC_LOW_SPEED_MODE,
         .channel = LEDC_CHANNEL_0,
         .timer_sel = LEDC_TIMER_0,
@@ -78,60 +97,72 @@ lv_display_t *display_init(void) {
     };
     ESP_ERROR_CHECK(ledc_channel_config(&bl_channel));
 
-    // SPI bus
-    spi_bus_config_t buscfg = {
-        .sclk_io_num = PIN_SCLK,
-        .mosi_io_num = PIN_MOSI,
-        .miso_io_num = 5,
-        .quadwp_io_num = -1,
-        .quadhd_io_num = -1,
-        .max_transfer_sz = LCD_H_RES * LVGL_BUF_LINES * sizeof(uint16_t),
+    /* Intel 8080 bus — 8 data lines + DC + WR */
+    esp_lcd_i80_bus_handle_t i80_bus = NULL;
+    esp_lcd_i80_bus_config_t bus_config = {
+        .clk_src = LCD_CLK_SRC_DEFAULT,
+        .dc_gpio_num = LCD_RS,
+        .wr_gpio_num = LCD_WR,
+        .data_gpio_nums = {
+            LCD_DB0, LCD_DB1, LCD_DB2, LCD_DB3,
+            LCD_DB4, LCD_DB5, LCD_DB6, LCD_DB7,
+        },
+        .bus_width = 8,
+        .max_transfer_bytes = LCD_H_RES * LVGL_BUF_LINES * sizeof(uint16_t),
+        .psram_trans_align = 64,
+        .sram_trans_align = 4,
     };
-    ESP_ERROR_CHECK(spi_bus_initialize(LCD_HOST, &buscfg, SPI_DMA_CH_AUTO));
+    ESP_ERROR_CHECK(esp_lcd_new_i80_bus(&bus_config, &i80_bus));
 
-    // Panel I/O
+    /* Panel I/O on the I80 bus — flush-ready callback targets the LVGL display */
     esp_lcd_panel_io_handle_t io_handle = NULL;
-    esp_lcd_panel_io_spi_config_t io_config = {
-        .dc_gpio_num = PIN_DC,
-        .cs_gpio_num = PIN_CS,
-        .pclk_hz = LCD_PIXEL_CLK,
+    esp_lcd_panel_io_i80_config_t io_config = {
+        .cs_gpio_num = -1,  /* WT32-SC01 Plus has no CS line for the LCD */
+        .pclk_hz = LCD_PCLK_HZ,
+        .trans_queue_depth = 10,
+        .on_color_trans_done = notify_lvgl_flush_ready,
+        .user_ctx = display,
         .lcd_cmd_bits = LCD_CMD_BITS,
         .lcd_param_bits = LCD_PARAM_BITS,
-        .spi_mode = 0,
-        .trans_queue_depth = 10,
+        .dc_levels = {
+            .dc_idle_level = 0,
+            .dc_cmd_level = 0,
+            .dc_dummy_level = 0,
+            .dc_data_level = 1,
+        },
+        .flags = {
+            .swap_color_bytes = 0,  /* we swap manually in lvgl_flush_cb */
+        },
     };
-    ESP_ERROR_CHECK(esp_lcd_new_panel_io_spi(LCD_HOST, &io_config, &io_handle));
+    ESP_ERROR_CHECK(esp_lcd_new_panel_io_i80(i80_bus, &io_config, &io_handle));
 
-    // ST7789 panel
+    /* ST7796 panel */
     esp_lcd_panel_handle_t panel = NULL;
     esp_lcd_panel_dev_config_t panel_config = {
-        .reset_gpio_num = PIN_RST,
+        .reset_gpio_num = LCD_RST,
         .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,
         .bits_per_pixel = 16,
     };
-    ESP_ERROR_CHECK(esp_lcd_new_panel_st7789(io_handle, &panel_config, &panel));
+    ESP_ERROR_CHECK(esp_lcd_new_panel_st7796(io_handle, &panel_config, &panel));
     ESP_ERROR_CHECK(esp_lcd_panel_reset(panel));
     ESP_ERROR_CHECK(esp_lcd_panel_init(panel));
-    ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel, true));
+    /* ST7796 in RGB565 mode — no color inversion needed (unlike ST7789) */
 
-    // Landscape: swap X/Y, then mirror as needed
+    /* Landscape: swap X/Y to rotate from native 320x480 portrait to 480x320 */
     ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(panel, true));
     ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel, true, false));
-    // Apply offset for 172-pixel dimension (centered in 240-pixel controller RAM)
-    // With swap_xy=true, CASET addresses rows and RASET addresses columns,
-    // so the 34-pixel column offset must go on y_gap, not x_gap.
-    ESP_ERROR_CHECK(esp_lcd_panel_set_gap(panel, 0, 34));
 
-    // Clear screen to black before turning on backlight
+    /* Clear screen to black before turning on backlight.
+     * Use a PSRAM buffer to avoid consuming internal DMA-capable memory. */
     {
         size_t clear_sz = LCD_H_RES * LVGL_BUF_LINES * sizeof(uint16_t);
-        void *clear_buf = heap_caps_calloc(1, clear_sz, MALLOC_CAP_DMA);
+        void *clear_buf = heap_caps_calloc(1, clear_sz, MALLOC_CAP_SPIRAM);
         configASSERT(clear_buf);
         for (int y = 0; y < LCD_V_RES; y += LVGL_BUF_LINES) {
             int h = (y + LVGL_BUF_LINES <= LCD_V_RES) ? LVGL_BUF_LINES : (LCD_V_RES - y);
             esp_lcd_panel_draw_bitmap(panel, 0, y, LCD_H_RES, y + h, clear_buf);
         }
-        // Wait for all queued SPI DMA transfers to complete before freeing
+        /* Wait for all queued parallel transfers to complete before freeing */
         vTaskDelay(pdMS_TO_TICKS(100));
         free(clear_buf);
     }
@@ -140,19 +171,11 @@ lv_display_t *display_init(void) {
     ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, config_store_get_brightness());
     ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
 
-    // LVGL init
-    lv_init();
-
-    lv_display_t *display = lv_display_create(LCD_H_RES, LCD_V_RES);
-    if (!display) {
-        ESP_LOGE(TAG, "lv_display_create failed — out of memory");
-        abort();
-    }
-
-    // DMA buffers
+    /* DMA buffers in PSRAM — ESP32-S3 with Octal PSRAM allows large partial
+     * buffers without pressuring internal SRAM. */
     size_t buf_sz = LCD_H_RES * LVGL_BUF_LINES * sizeof(lv_color16_t);
-    void *buf1 = heap_caps_malloc(buf_sz, MALLOC_CAP_DMA);
-    void *buf2 = heap_caps_malloc(buf_sz, MALLOC_CAP_DMA);
+    void *buf1 = heap_caps_malloc(buf_sz, MALLOC_CAP_SPIRAM);
+    void *buf2 = heap_caps_malloc(buf_sz, MALLOC_CAP_SPIRAM);
     configASSERT(buf1 && buf2);
 
     lv_display_set_buffers(display, buf1, buf2, buf_sz,
@@ -161,13 +184,7 @@ lv_display_t *display_init(void) {
     lv_display_set_color_format(display, LV_COLOR_FORMAT_RGB565);
     lv_display_set_flush_cb(display, lvgl_flush_cb);
 
-    // DMA done -> flush ready callback
-    const esp_lcd_panel_io_callbacks_t cbs = {
-        .on_color_trans_done = notify_lvgl_flush_ready,
-    };
-    ESP_ERROR_CHECK(esp_lcd_panel_io_register_event_callbacks(io_handle, &cbs, display));
-
-    // LVGL tick timer
+    /* LVGL tick timer */
     const esp_timer_create_args_t tick_args = {
         .callback = &lvgl_tick_cb,
         .name = "lvgl_tick",
@@ -176,7 +193,7 @@ lv_display_t *display_init(void) {
     ESP_ERROR_CHECK(esp_timer_create(&tick_args, &tick_timer));
     ESP_ERROR_CHECK(esp_timer_start_periodic(tick_timer, LVGL_TICK_MS * 1000));
 
-    ESP_LOGI(TAG, "Display initialized: %dx%d landscape", LCD_H_RES, LCD_V_RES);
+    ESP_LOGI(TAG, "Display initialized: %dx%d landscape (parallel I80)", LCD_H_RES, LCD_V_RES);
     return display;
 }
 

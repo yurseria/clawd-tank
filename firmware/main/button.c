@@ -5,7 +5,7 @@
 #include "esp_timer.h"
 #include "esp_log.h"
 
-#define BUTTON_GPIO     GPIO_NUM_9  /* BOOT button on ESP32-C6 */
+#define BUTTON_GPIO     GPIO_NUM_10  /* EXT_IO1 on WT32-SC01 Plus expansion header */
 #define DEBOUNCE_US     200000  /* 200ms debounce */
 
 static const char *TAG = "button";

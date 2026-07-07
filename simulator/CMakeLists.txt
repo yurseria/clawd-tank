@@ -29,8 +29,8 @@ set(FIRMWARE_DIR ${CMAKE_SOURCE_DIR}/../firmware/main)
 set(LVGL_DIR ${CMAKE_SOURCE_DIR}/../firmware/managed_components/lvgl__lvgl)
 
 # Build LVGL as a subdirectory — it detects non-ESP and uses os_desktop.cmake
-# Point it to our lv_conf.h via LV_BUILD_CONF_DIR
-set(LV_BUILD_CONF_DIR ${CMAKE_SOURCE_DIR} CACHE PATH "" FORCE)
+# Point it to our lv_conf.h via LV_CONF_PATH (absolute file path)
+set(LV_CONF_PATH ${CMAKE_SOURCE_DIR}/lv_conf.h CACHE PATH "" FORCE)
 set(CONFIG_LV_BUILD_DEMOS OFF CACHE BOOL "" FORCE)
 set(CONFIG_LV_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 set(CONFIG_LV_USE_THORVG_INTERNAL OFF CACHE BOOL "" FORCE)

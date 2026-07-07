@@ -4,13 +4,13 @@
 
 /* ---------- Constants ---------- */
 
-#define SCREEN_W              320
-#define SCREEN_H              172
-#define COUNTER_H             20
-#define FEATURED_H            64
+#define SCREEN_W              480
+#define SCREEN_H              320
+#define COUNTER_H             28
+#define FEATURED_H            90
 #define FEATURED_H_EXPANDED   (SCREEN_H - COUNTER_H - 8)  /* fills panel on new notif */
-#define COMPACT_ROW_H         14
-#define DOT_SIZE              6
+#define COMPACT_ROW_H         20
+#define DOT_SIZE              8
 
 /* How long the expanded "hero" view is shown before shrinking to compact list */
 #define EXPAND_HOLD_MS        2500
@@ -79,8 +79,8 @@ notification_ui_t *notification_ui_create(lv_obj_t *parent)
     /* Container — full height, positioned by set_x */
     ui->container = lv_obj_create(parent);
     lv_obj_remove_style_all(ui->container);
-    lv_obj_set_size(ui->container, SCREEN_W - 107, SCREEN_H);
-    lv_obj_set_pos(ui->container, 107, 0);
+    lv_obj_set_size(ui->container, SCREEN_W - 160, SCREEN_H);
+    lv_obj_set_pos(ui->container, 160, 0);
     lv_obj_set_scrollbar_mode(ui->container, LV_SCROLLBAR_MODE_OFF);
     lv_obj_clear_flag(ui->container, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_add_flag(ui->container, LV_OBJ_FLAG_HIDDEN);
@@ -91,9 +91,9 @@ notification_ui_t *notification_ui_create(lv_obj_t *parent)
 
     /* Counter label: "> N WAITING!" */
     ui->counter_label = lv_label_create(ui->container);
-    lv_obj_set_style_text_font(ui->counter_label, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(ui->counter_label, &lv_font_montserrat_18, 0);
     lv_obj_set_style_text_color(ui->counter_label, lv_color_hex(0xffdd57), 0);
-    lv_obj_set_pos(ui->counter_label, 4, 2);
+    lv_obj_set_pos(ui->counter_label, 6, 4);
     lv_label_set_text(ui->counter_label, "");
 
     /* Featured card */
@@ -103,16 +103,16 @@ notification_ui_t *notification_ui_create(lv_obj_t *parent)
     lv_obj_set_style_bg_color(ui->featured_card, lv_color_hex(0x2a1a3e), 0);
     lv_obj_set_style_border_width(ui->featured_card, 2, 0);
     lv_obj_set_style_border_color(ui->featured_card, lv_color_hex(accent_colors[0]), 0);
-    lv_obj_set_style_radius(ui->featured_card, 3, 0);
-    lv_obj_set_style_pad_all(ui->featured_card, 6, 0);
-    lv_obj_set_pos(ui->featured_card, 4, COUNTER_H + 2);
+    lv_obj_set_style_radius(ui->featured_card, 4, 0);
+    lv_obj_set_style_pad_all(ui->featured_card, 8, 0);
+    lv_obj_set_pos(ui->featured_card, 6, COUNTER_H + 4);
     lv_obj_set_size(ui->featured_card, lv_pct(95), FEATURED_H);
     lv_obj_set_scrollbar_mode(ui->featured_card, LV_SCROLLBAR_MODE_OFF);
     lv_obj_clear_flag(ui->featured_card, LV_OBJ_FLAG_SCROLLABLE);
 
     /* Featured: project name — marquee scroll when text overflows */
     ui->featured_project = lv_label_create(ui->featured_card);
-    lv_obj_set_style_text_font(ui->featured_project, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_font(ui->featured_project, &lv_font_montserrat_18, 0);
     lv_obj_set_style_text_color(ui->featured_project, lv_color_hex(0xffdd57), 0);
     lv_obj_set_pos(ui->featured_project, 0, 0);
     lv_label_set_long_mode(ui->featured_project, LV_LABEL_LONG_SCROLL_CIRCULAR);
@@ -120,17 +120,17 @@ notification_ui_t *notification_ui_create(lv_obj_t *parent)
 
     /* Featured: message — marquee scroll when text overflows */
     ui->featured_message = lv_label_create(ui->featured_card);
-    lv_obj_set_style_text_font(ui->featured_message, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_font(ui->featured_message, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(ui->featured_message, lv_color_hex(0xcc99ff), 0);
-    lv_obj_set_pos(ui->featured_message, 0, 18);
+    lv_obj_set_pos(ui->featured_message, 0, 24);
     lv_label_set_long_mode(ui->featured_message, LV_LABEL_LONG_SCROLL_CIRCULAR);
     lv_obj_set_width(ui->featured_message, lv_pct(100));
 
     /* Featured: badge */
     ui->featured_badge = lv_label_create(ui->featured_card);
-    lv_obj_set_style_text_font(ui->featured_badge, &lv_font_montserrat_10, 0);
+    lv_obj_set_style_text_font(ui->featured_badge, &lv_font_montserrat_12, 0);
     lv_obj_set_style_text_color(ui->featured_badge, lv_color_hex(0x88cc88), 0);
-    lv_obj_set_pos(ui->featured_badge, 0, 38);
+    lv_obj_set_pos(ui->featured_badge, 0, 54);
 
     /* Auto-rotation timer */
     ui->rotation_timer = lv_timer_create(rotation_timer_cb, ROTATION_INTERVAL_MS, ui);
@@ -381,7 +381,7 @@ static void rebuild_display(notification_ui_t *ui)
         lv_label_set_text(ui->featured_message, ui->sorted[fi].message);
 
         /* In hero view, show a prominent "NEW" badge lower in the card */
-        lv_obj_set_pos(ui->featured_badge, 0, FEATURED_H_EXPANDED - 24);
+        lv_obj_set_pos(ui->featured_badge, 0, FEATURED_H_EXPANDED - 28);
         lv_label_set_text(ui->featured_badge, "NEW");
         lv_obj_set_style_text_color(ui->featured_badge,
                                     lv_color_hex(0xff6b6b), 0);
@@ -419,7 +419,7 @@ static void rebuild_display(notification_ui_t *ui)
     lv_label_set_text(ui->featured_message, ui->sorted[fi].message);
 
     /* Badge: NEWEST for highest-seq, index label for rotation */
-    lv_obj_set_pos(ui->featured_badge, 0, 38);
+    lv_obj_set_pos(ui->featured_badge, 0, 54);
     bool is_newest = (fi == count - 1);
     if (is_newest) {
         lv_label_set_text(ui->featured_badge, "NEWEST");
@@ -475,9 +475,9 @@ static void rebuild_display(notification_ui_t *ui)
 
         /* Project name */
         lv_obj_t *label = lv_label_create(row);
-        lv_obj_set_style_text_font(label, &lv_font_montserrat_12, 0);
+        lv_obj_set_style_text_font(label, &lv_font_montserrat_14, 0);
         lv_obj_set_style_text_color(label, lv_color_hex(0xcccccc), 0);
-        lv_obj_set_pos(label, DOT_SIZE + 6, 2);
+        lv_obj_set_pos(label, DOT_SIZE + 8, 3);
         lv_label_set_long_mode(label, LV_LABEL_LONG_DOT);
         lv_obj_set_width(label, lv_pct(85));
         lv_label_set_text(label, ui->sorted[i].project);

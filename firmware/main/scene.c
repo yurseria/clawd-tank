@@ -40,8 +40,8 @@
 
 /* ---------- Constants ---------- */
 
-#define SCENE_HEIGHT       172
-#define GRASS_HEIGHT       14
+#define SCENE_HEIGHT       320
+#define GRASS_HEIGHT       26
 #define STAR_COUNT         6
 #define STAR_TWINKLE_MIN   2000
 #define STAR_TWINKLE_MAX   4000
@@ -278,10 +278,9 @@ static const anim_def_t anim_defs[] = {
 #ifdef SIMULATOR
 #define MAX_SLOTS   8   /* slot array size: active + departing (going-away animation) */
 #else
-/* ESP32-C6 has no PSRAM. With cropped sprites + RGB565A8, the largest
- * session buffer is ~50 KB (confused). 4 visible + 2 departing fits
- * comfortably in ~200 KB free internal SRAM. */
-#define MAX_SLOTS   6
+/* ESP32-S3 with 8MB Octal PSRAM has ample memory for full session buffers.
+ * 4 visible + 4 departing fits comfortably in PSRAM. */
+#define MAX_SLOTS   8
 #endif
 
 typedef struct {
@@ -306,12 +305,12 @@ static const struct {
     int x, y, size;
     lv_color_t color;
 } star_cfg[STAR_COUNT] = {
-    { 10,  8, 2, {.red = 0xFF, .green = 0xFF, .blue = 0x88} },  /* #ffff88 */
-    { 45, 15, 3, {.red = 0x88, .green = 0xCC, .blue = 0xFF} },  /* #88ccff */
-    { 80, 22, 2, {.red = 0xFF, .green = 0xAA, .blue = 0x88} },  /* #ffaa88 */
-    {120,  5, 4, {.red = 0xAA, .green = 0xCC, .blue = 0xFF} },  /* #aaccff */
-    {150, 18, 2, {.red = 0xFF, .green = 0xDD, .blue = 0x88} },  /* #ffdd88 */
-    {160, 30, 3, {.red = 0x88, .green = 0xFF, .blue = 0xCC} },  /* #88ffcc */
+    { 20,  8, 2, {.red = 0xFF, .green = 0xFF, .blue = 0x88} },  /* #ffff88 */
+    { 90, 18, 3, {.red = 0x88, .green = 0xCC, .blue = 0xFF} },  /* #88ccff */
+    {160, 12, 2, {.red = 0xFF, .green = 0xAA, .blue = 0x88} },  /* #ffaa88 */
+    {240,  6, 4, {.red = 0xAA, .green = 0xCC, .blue = 0xFF} },  /* #aaccff */
+    {330, 22, 2, {.red = 0xFF, .green = 0xDD, .blue = 0x88} },  /* #ffdd88 */
+    {420, 14, 3, {.red = 0x88, .green = 0xFF, .blue = 0xCC} },  /* #88ffcc */
 };
 
 /* ---------- Scene struct ---------- */
@@ -332,7 +331,7 @@ struct scene_t {
     /* Clawd sprite slots (1 per visible session) */
     clawd_slot_t slots[MAX_SLOTS];
     int active_slot_count;
-    bool narrow;  /* true when scene is in notification-width mode (107px) */
+    bool narrow;  /* true when scene is in notification-width mode (160px) */
     int target_width;  /* target container width in px (for badge positioning) */
     bool pending_reposition;  /* true = wait for departing slots to finish before walking */
 
@@ -543,7 +542,8 @@ scene_t *scene_create(lv_obj_t *parent)
 
     /* Grass tufts — small lighter rectangles */
     static const struct { int x; int w; } tufts[] = {
-        {8, 3}, {25, 2}, {50, 4}, {78, 2}, {100, 3}, {130, 2}, {155, 3},
+        {10, 4}, {40, 3}, {75, 5}, {115, 3}, {150, 4}, {190, 3},
+        {225, 5}, {265, 3}, {300, 4}, {340, 3}, {375, 5}, {415, 3}, {450, 4},
     };
     for (int i = 0; i < (int)(sizeof(tufts) / sizeof(tufts[0])); i++) {
         lv_obj_t *tuft = lv_obj_create(s->grass);
@@ -565,7 +565,7 @@ scene_t *scene_create(lv_obj_t *parent)
     }
     s->active_slot_count = 1;
     s->narrow = false;
-    s->target_width = 320;
+    s->target_width = 480;
     scene_activate_slot(s, 0, CLAWD_ANIM_IDLE);
 
     /* Time label — top-right */
@@ -611,10 +611,10 @@ scene_t *scene_create(lv_obj_t *parent)
 /* ---------- Multi-session X positions ---------- */
 
 static const int x_centers[][4] = {
-    {160},              /* 1 session */
-    {107, 213},         /* 2 sessions */
-    {80, 160, 240},     /* 3 sessions */
-    {64, 128, 192, 256} /* 4 sessions */
+    {240},                  /* 1 session */
+    {160, 320},             /* 2 sessions */
+    {120, 240, 360},        /* 3 sessions */
+    {96, 192, 288, 384}     /* 4 sessions */
 };
 
 /* Forward declarations — defined after scene_set_width */
@@ -628,7 +628,7 @@ void scene_set_width(scene_t *scene, int width_px, int anim_ms)
     if (!scene) return;
 
     bool was_narrow = scene->narrow;
-    scene->narrow = (width_px < 320);
+    scene->narrow = (width_px < 480);
     scene->target_width = width_px;
 
     /* In narrow mode, hide all slots except 0; restore when going wide */
@@ -671,7 +671,7 @@ void scene_set_width(scene_t *scene, int width_px, int anim_ms)
         }
         /* Re-center slot 0 for narrow container.
          * Cancel any in-progress walk animation — it uses full-width x_off
-         * targets that would push the sprite off-screen in a 107px container. */
+         * targets that would push the sprite off-screen in a 160px container. */
         if (scene->slots[0].active && scene->slots[0].sprite_img) {
             if (scene->slots[0].walking_in) {
                 lv_anim_delete(scene->slots[0].sprite_img, (lv_anim_exec_xcb_t)lv_obj_set_x);
@@ -701,7 +701,7 @@ void scene_set_width(scene_t *scene, int width_px, int anim_ms)
             if (!scene->slots[i].active || !scene->slots[i].sprite_img) continue;
             if (i > 0) lv_obj_clear_flag(scene->slots[i].sprite_img, LV_OBJ_FLAG_HIDDEN);
 
-            int target_x_off = (cnt >= 2) ? x_centers[cnt - 1][i] - 160 : 0;
+            int target_x_off = (cnt >= 2) ? x_centers[cnt - 1][i] - 240 : 0;
             int old_x_off = scene->slots[i].x_off;
             scene->slots[i].x_off = target_x_off;
 
@@ -883,7 +883,7 @@ void scene_tick(scene_t *scene)
                                 for (int r = 0; r < cnt; r++) {
                                     clawd_slot_t *rs = &scene->slots[r];
                                     if (!rs->active || !rs->sprite_img || rs->walking_in) continue;
-                                    int target = (cnt >= 2) ? x_centers[cnt - 1][r] - 160 : 0;
+                                    int target = (cnt >= 2) ? x_centers[cnt - 1][r] - 240 : 0;
                                     int cur = rs->x_off;
                                     if (cur == target) continue;
                                     rs->x_off = target;
@@ -1058,7 +1058,7 @@ static void scene_update_hud(scene_t *s, uint8_t subagent_count, uint8_t overflo
         int text_w = (int)strlen(buf) * 6 * 2;  /* chars * (5+1 gap) * px_size */
         pixel_font_draw(s->hud_badge_canvas, buf, 48 - text_w, 1, 2, lv_color_hex(0x8BC6FC));
         /* Position at right edge of scene area: use negative x-offset from screen right */
-        int x_from_right = -(320 - s->target_width) - 1;
+        int x_from_right = -(480 - s->target_width) - 1;
         lv_obj_align(s->hud_badge_canvas, LV_ALIGN_TOP_RIGHT, x_from_right, 4);
         lv_obj_clear_flag(s->hud_badge_canvas, LV_OBJ_FLAG_HIDDEN);
     } else {
@@ -1227,7 +1227,7 @@ void scene_set_sessions(scene_t *s, const uint8_t *anims, const uint16_t *ids,
      * Positioning: use lv_obj_align(BOTTOM_MID) for correct Y placement
      * (feet in grass). For multiple sessions, x_off distributes them
      * across the container. x_centers[] are absolute pixel positions
-     * assuming 320px width; convert to offsets from center (160). */
+     * assuming 480px width; convert to offsets from center (240). */
     for (int new_i = 0; new_i < count; new_i++) {
         int old_i = find_id_in(old_ids, old_count, ids[new_i]);
         /* Adopt unclaimed slot (display_id==0) for the first new session.
@@ -1241,7 +1241,7 @@ void scene_set_sessions(scene_t *s, const uint8_t *anims, const uint16_t *ids,
                 }
             }
         }
-        int x_off = x_centers[count - 1][new_i] - 160;
+        int x_off = x_centers[count - 1][new_i] - 240;
         if (old_i >= 0 && old_slots[old_i].active) {
             /* Existing session — move slot data, update animation if changed */
             s->slots[new_i] = old_slots[old_i];
@@ -1311,8 +1311,8 @@ void scene_set_sessions(scene_t *s, const uint8_t *anims, const uint16_t *ids,
              *
              * LVGL 9 coordinate model: lv_obj_set_x/set_pos set OFFSETS
              * from the alignment anchor (LV_ALIGN_BOTTOM_MID), not absolute
-             * pixel positions. So x=0 means "at center", x=250 means
-             * "250px right of center" (off-screen on a 320px display). */
+             * pixel positions. So x=0 means "at center", x=380 means
+             * "380px right of center" (off-screen on a 480px display). */
             scene_activate_slot(s, new_i, CLAWD_ANIM_WALKING);
             s->slots[new_i].display_id = ids[new_i];
             s->slots[new_i].x_off = x_off;
@@ -1320,7 +1320,7 @@ void scene_set_sessions(scene_t *s, const uint8_t *anims, const uint16_t *ids,
 
             /* Start off-screen right: large positive X offset from BOTTOM_MID.
              * Y stays as y_offset (already set by scene_activate_slot's align). */
-            int start_x_off = 250;  /* well past right edge from center */
+            int start_x_off = 380;  /* well past right edge from center (480px) */
             lv_obj_set_x(s->slots[new_i].sprite_img, start_x_off);
 
             /* Target X is just the alignment offset for this slot position */
@@ -1339,7 +1339,7 @@ void scene_set_sessions(scene_t *s, const uint8_t *anims, const uint16_t *ids,
 
     /* Clean up removed slots — play going-away animation.
      * In narrow mode, skip animation and delete immediately
-     * to avoid orphan sprites visible within the 107px container. */
+     * to avoid orphan sprites visible within the 160px container. */
     int departing_idx = count; /* first free slot after active ones */
     for (int i = 0; i < MAX_SLOTS; i++) {
         if (old_slots[i].sprite_img) {
