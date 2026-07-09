@@ -1,3 +1,6 @@
 -r requirements.txt
 pytest>=7.0
 pytest-asyncio>=0.21
+# build.sh (.app bundle) — Python 3.12+ venvs no longer ship setuptools
+setuptools
+py2app>=0.28

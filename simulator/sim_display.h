@@ -5,8 +5,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#define SIM_LCD_H_RES 320
-#define SIM_LCD_V_RES 172
+#define SIM_LCD_H_RES 480
+#define SIM_LCD_V_RES 320
 
 /**
  * Initialize the display.
@@ -17,7 +17,7 @@
  */
 lv_display_t *sim_display_init(bool headless, int scale, bool bordered, bool pinned);
 
-/** Get pointer to the raw RGB565 framebuffer (320*172 uint16_t). */
+/** Get pointer to the raw RGB565 framebuffer (480*320 uint16_t). */
 uint16_t *sim_display_get_framebuffer(void);
 
 /** Pump SDL events (interactive) or no-op (headless). */
