@@ -14,20 +14,43 @@ Clawd Tank를 WT32-SC01 Plus 보드에서 실행하기 위한 가이드입니다
 
 이 프로젝트는 ESP-IDF 5.3.2를 사용합니다.
 
+### 1-1. ESP-IDF 설치 (최초 1회)
+
 ```bash
 cd clawd-tank
-./setup_env.sh        # direnv, ESP-IDF 설치 (최초 1회)
+./setup_env.sh        # direnv, ESP-IDF 5.3.2 설치 (esp32c6 타깃만 포함)
 direnv allow          # 환경 활성화
 ```
 
-ESP32-S3 타깃을 지정합니다 (기존 C6 설정에서 전환).
+`setup_env.sh`는 ESP-IDF를 `bsp/esp-idf/`에 설치합니다. 이 디렉토리는 `.gitignore`에 있어 저장소에 포함되지 않으므로, 새 환경에서는 반드시 이 스크립트를 먼저 실행해야 합니다.
+
+### 1-2. ESP32-S3 툴체인 추가 설치
+
+`setup_env.sh`는 ESP32-C6(RISC-V) 툴체인만 설치합니다. WT32-SC01 Plus의 ESP32-S3는 Xtensa 아키텍처이므로 별도 설치가 필요합니다.
+
+```bash
+export IDF_TOOLS_PATH="$PWD/.espressif"
+source bsp/esp-idf/export.sh
+$IDF_PATH/install.sh esp32s3
+```
+
+### 1-3. 환경 활성화
+
+이후 모든 `idf.py` 명령은 ESP-IDF 환경을 먼저 활성화해야 합니다. direnv가 자동으로 처리하지만, 수동으로 할 경우:
+
+```bash
+export IDF_TOOLS_PATH="$PWD/.espressif"
+source bsp/esp-idf/export.sh
+```
+
+### 1-4. 타깃 설정
 
 ```bash
 cd firmware
-idf.py set-target esp32-s3
+idf.py set-target esp32s3
 ```
 
-> 이 과정에서 `esp_lcd_st7796`, `lvgl`, `led_strip` 컴포넌트가 자동으로 다운로드됩니다.
+> 이 과정에서 `esp_lcd_st7796`(1.4.0), `lvgl`(9.5.0), `led_strip`(2.5.5) 컴포넌트가 자동으로 다운로드됩니다.
 
 ---
 
@@ -41,6 +64,8 @@ idf.py build
 빌드가 성공하면 다음과 같은 메시지가 표시됩니다.
 
 ```
+clawd-tank.bin binary size 0x1f91e0 bytes. Smallest app partition is 0xff0000 bytes. 0xdf6e20 bytes (88%) free.
+
 Project build complete. To flash, run:
  idf.py flash
 ```
