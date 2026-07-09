@@ -189,6 +189,15 @@ Multi-agent review of the attention-hooks work surfaced 15 findings; fixes:
 - [x] **Heap diagnostics** — Free heap logged at boot. OOM logging in `ensure_frame_buf`.
 - [x] **PSRAM correction** — ESP32-C6FH8 has no PSRAM. Removed bogus settings from `sdkconfig.defaults`, corrected CLAUDE.md.
 
+## WT32-SC01 Plus Port (in progress)
+
+- [x] **Firmware ported to WT32-SC01 Plus** — ESP32-S3, 480x320 ST7796U over 8-bit i80 parallel bus (branch `feat/wt32-sc01-plus-port`).
+- [x] **PSRAM config corrected** — WT32-S3 module has 2MB Quad PSRAM (not 8MB Octal); `sdkconfig.defaults` fixed. LVGL render buffers moved to internal DMA SRAM (i80 DMA path).
+- [x] **Display corruption root-caused and fixed** — panel needs `invert_color(true)` (IPS), BGR element order, and landscape mirror `(false,false)` with `swap_xy`; byte swap moved to i80 `swap_color_bytes` hardware flag; PCLK restored to 20MHz. Matches verified WT32-SC01 Plus BSP config.
+- [x] **Screen-freeze root-caused: GPIO8 conflict** — `rgb_led.c` (C6 onboard WS2812) initialized RMT on GPIO8, which is LCD data line DB3 on WT32-SC01 Plus. This stole the pin from LCD_CAM after boot, corrupting every subsequent panel write (boot-time draws worked; LVGL flushes after `rgb_led_init` never displayed). RGB LED now disabled on this board.
+- [x] **Verified on hardware** — scene renders correctly (colors, orientation, time, crab animation) with BLE connected via `tools/ble_interactive.py`. Temporary flush-trace logging removed.
+- [ ] **UX: disconnected/idle scene is nearly invisible** — night sky `0x0a0e1a` + gray-recolored crab reads as "screen off" on the 3.5" panel. Consider brightening the scene or the disconnected hint text for this board.
+
 ## Future Considerations (Out of Scope)
 
 - Physical button interaction (dismiss notifications from the device)

@@ -15,6 +15,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_heap_caps.h"
+#include <string.h>
 
 static const char *TAG = "display";
 
@@ -38,8 +39,8 @@ static const char *TAG = "display";
 #define LCD_V_RES       320   /* landscape height */
 #define LCD_CMD_BITS    8
 #define LCD_PARAM_BITS  8
-#define LCD_PCLK_HZ     (16 * 1000 * 1000)  /* 16 MHz parallel bus clock */
-#define LVGL_BUF_LINES  40    /* larger buffers now affordable with PSRAM */
+#define LCD_PCLK_HZ     (20 * 1000 * 1000)  /* 20 MHz — verified stable on this panel */
+#define LVGL_BUF_LINES  20    /* internal DMA SRAM only — keep small to fit */
 #define LVGL_TICK_MS    2
 
 static bool notify_lvgl_flush_ready(esp_lcd_panel_io_handle_t panel_io,
@@ -53,10 +54,6 @@ static bool notify_lvgl_flush_ready(esp_lcd_panel_io_handle_t panel_io,
 static void lvgl_flush_cb(lv_display_t *disp, const lv_area_t *area,
                            uint8_t *px_map) {
     esp_lcd_panel_handle_t panel = lv_display_get_user_data(disp);
-
-    int w = area->x2 - area->x1 + 1;
-    int h = area->y2 - area->y1 + 1;
-    lv_draw_sw_rgb565_swap(px_map, w * h);
 
     esp_lcd_panel_draw_bitmap(panel,
         area->x1, area->y1, area->x2 + 1, area->y2 + 1, px_map);
@@ -131,7 +128,9 @@ lv_display_t *display_init(void) {
             .dc_data_level = 1,
         },
         .flags = {
-            .swap_color_bytes = 0,  /* we swap manually in lvgl_flush_cb */
+            /* LVGL renders RGB565 little-endian; ST7796 expects the high
+             * byte first, so let the I80 peripheral swap each 16-bit word. */
+            .swap_color_bytes = 1,
         },
     };
     ESP_ERROR_CHECK(esp_lcd_new_panel_io_i80(i80_bus, &io_config, &io_handle));
@@ -140,29 +139,32 @@ lv_display_t *display_init(void) {
     esp_lcd_panel_handle_t panel = NULL;
     esp_lcd_panel_dev_config_t panel_config = {
         .reset_gpio_num = LCD_RST,
-        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_RGB,
+        .rgb_ele_order = LCD_RGB_ELEMENT_ORDER_BGR,  /* panel wiring is BGR */
         .bits_per_pixel = 16,
     };
     ESP_ERROR_CHECK(esp_lcd_new_panel_st7796(io_handle, &panel_config, &panel));
     ESP_ERROR_CHECK(esp_lcd_panel_reset(panel));
     ESP_ERROR_CHECK(esp_lcd_panel_init(panel));
-    /* ST7796 in RGB565 mode — no color inversion needed (unlike ST7789) */
+    /* The WT32-SC01 Plus IPS panel needs color inversion (same as ST7789 IPS) */
+    ESP_ERROR_CHECK(esp_lcd_panel_invert_color(panel, true));
 
-    /* Landscape: swap X/Y to rotate from native 320x480 portrait to 480x320 */
+    /* Landscape: swap X/Y to rotate from native 320x480 portrait to 480x320.
+     * Portrait-correct orientation on this panel is mirror_x=true/swap=false,
+     * so a 90° rotation is swap_xy=true with no mirroring. If the image ends
+     * up 180° rotated, use mirror(true, true) instead. */
     ESP_ERROR_CHECK(esp_lcd_panel_swap_xy(panel, true));
-    ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel, true, false));
+    ESP_ERROR_CHECK(esp_lcd_panel_mirror(panel, false, false));
 
-    /* Clear screen to black before turning on backlight.
-     * Use a PSRAM buffer to avoid consuming internal DMA-capable memory. */
+    /* Clear screen to black before turning on backlight. INVON compensates
+     * the panel's inverted optics, so the chain is WYSIWYG: 0x0000 = black. */
     {
         size_t clear_sz = LCD_H_RES * LVGL_BUF_LINES * sizeof(uint16_t);
-        void *clear_buf = heap_caps_calloc(1, clear_sz, MALLOC_CAP_SPIRAM);
+        void *clear_buf = heap_caps_calloc(1, clear_sz, MALLOC_CAP_DMA);
         configASSERT(clear_buf);
         for (int y = 0; y < LCD_V_RES; y += LVGL_BUF_LINES) {
             int h = (y + LVGL_BUF_LINES <= LCD_V_RES) ? LVGL_BUF_LINES : (LCD_V_RES - y);
             esp_lcd_panel_draw_bitmap(panel, 0, y, LCD_H_RES, y + h, clear_buf);
         }
-        /* Wait for all queued parallel transfers to complete before freeing */
         vTaskDelay(pdMS_TO_TICKS(100));
         free(clear_buf);
     }
@@ -171,11 +173,13 @@ lv_display_t *display_init(void) {
     ledc_set_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0, config_store_get_brightness());
     ledc_update_duty(LEDC_LOW_SPEED_MODE, LEDC_CHANNEL_0);
 
-    /* DMA buffers in PSRAM — ESP32-S3 with Octal PSRAM allows large partial
-     * buffers without pressuring internal SRAM. */
+    /* LVGL render buffers — must be in internal DMA-capable SRAM because the
+     * flush callback sends them directly to the I80 parallel bus, whose DMA
+     * cannot access PSRAM. Keep buffers small (20 lines) to fit in SRAM.
+     * Scene sprite frame buffers (decoded separately) can still use PSRAM. */
     size_t buf_sz = LCD_H_RES * LVGL_BUF_LINES * sizeof(lv_color16_t);
-    void *buf1 = heap_caps_malloc(buf_sz, MALLOC_CAP_SPIRAM);
-    void *buf2 = heap_caps_malloc(buf_sz, MALLOC_CAP_SPIRAM);
+    void *buf1 = heap_caps_malloc(buf_sz, MALLOC_CAP_DMA);
+    void *buf2 = heap_caps_malloc(buf_sz, MALLOC_CAP_DMA);
     configASSERT(buf1 && buf2);
 
     lv_display_set_buffers(display, buf1, buf2, buf_sz,

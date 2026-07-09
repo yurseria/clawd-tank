@@ -111,6 +111,17 @@ static void timer_cb(void *arg)
 
 void rgb_led_init(void)
 {
+#ifndef SIMULATOR
+    /* WT32-SC01 Plus has no onboard WS2812, and GPIO8 is LCD data line DB3.
+     * Creating the RMT LED strip would steal DB3 from the LCD_CAM peripheral,
+     * corrupting every subsequent panel command/pixel write (screen freezes).
+     * Leave s_strip NULL — all other rgb_led functions no-op on it.
+     * The simulator keeps the LED (rendered as a window border). */
+    ESP_LOGI(TAG, "RGB LED disabled (no WS2812 on WT32-SC01 Plus; GPIO%d is LCD DB3)",
+             RGB_LED_GPIO);
+    return;
+#endif
+
     led_strip_config_t strip_config = {
         .strip_gpio_num = RGB_LED_GPIO,
         .max_leds = 1,
