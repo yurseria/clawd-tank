@@ -14,12 +14,13 @@ Clawd Tank를 WT32-SC01 Plus 보드에서 실행하기 위한 가이드입니다
 
 이 프로젝트는 ESP-IDF 5.3.2를 사용합니다.
 
+> **중요**: `idf.py`는 디렉토리에 있는 파일이 아닙니다. ESP-IDF 환경이 활성화되어야 PATH에 잡히는 명령어입니다. 아래 단계를 따라 환경을 먼저 설정하세요.
+
 ### 1-1. ESP-IDF 설치 (최초 1회)
 
 ```bash
 cd clawd-tank
 ./setup_env.sh        # direnv, ESP-IDF 5.3.2 설치 (esp32c6 타깃만 포함)
-direnv allow          # 환경 활성화
 ```
 
 `setup_env.sh`는 ESP-IDF를 `bsp/esp-idf/`에 설치합니다. 이 디렉토리는 `.gitignore`에 있어 저장소에 포함되지 않으므로, 새 환경에서는 반드시 이 스크립트를 먼저 실행해야 합니다.
@@ -29,19 +30,29 @@ direnv allow          # 환경 활성화
 `setup_env.sh`는 ESP32-C6(RISC-V) 툴체인만 설치합니다. WT32-SC01 Plus의 ESP32-S3는 Xtensa 아키텍처이므로 별도 설치가 필요합니다.
 
 ```bash
+cd clawd-tank                            # 프로젝트 루트에서 실행
 export IDF_TOOLS_PATH="$PWD/.espressif"
-source bsp/esp-idf/export.sh
-$IDF_PATH/install.sh esp32s3
+source bsp/esp-idf/export.sh             # 환경 활성화
+$IDF_PATH/install.sh esp32s3             # S3 툴체인 설치
 ```
 
-### 1-3. 환경 활성화
+### 1-3. 환경 활성화 (매 터미널 세션마다)
 
-이후 모든 `idf.py` 명령은 ESP-IDF 환경을 먼저 활성화해야 합니다. direnv가 자동으로 처리하지만, 수동으로 할 경우:
+이후 모든 `idf.py` 명령은 ESP-IDF 환경을 먼저 활성화해야 합니다. **새 터미널을 열 때마다 아래 명령을 실행하세요.**
 
 ```bash
+cd clawd-tank                            # 프로젝트 루트로 이동
 export IDF_TOOLS_PATH="$PWD/.espressif"
 source bsp/esp-idf/export.sh
 ```
+
+활성화가 성공했는지 확인:
+
+```bash
+which idf.py                             # 경로가 출력되어야 함 (예: .../bsp/esp-idf/tools/idf.py)
+```
+
+> **direnv 사용 시**: `direnv allow`를 한 번 실행하면 이후 터미널에서 `firmware/` 디렉토리에 들어갈 때 자동으로 환경이 활성화됩니다. 단, direnv 훅이 쉘에 설정되어 있어야 합니다 (`eval "$(direnv hook zsh)"` in `~/.zshrc`).
 
 ### 1-4. 타깃 설정
 
